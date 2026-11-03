@@ -109,7 +109,7 @@ class MainActivity : Activity() {
         }
         scroll.addView(root)
         root.addView(text("Mi HR Bridge", 29f, white, true))
-        root.addView(text("蓝牙心率转发 · 开发测试版 0.1.1", 12f, muted).apply {
+        root.addView(text("蓝牙心率转发 · 开发测试版 0.2.0", 12f, muted).apply {
             setPadding(0, dp(5), 0, dp(18))
         })
 
@@ -182,12 +182,15 @@ class MainActivity : Activity() {
         root.addView(button("扫描 BLE 设备并选择输入", cardColor, white) {
             checkPermissionsThen(REQ_SCAN)
         })
+        root.addView(button("手环 GATT 服务诊断（只读）", cardColor, white) {
+            checkPermissionsThen(REQ_DIAG)
+        })
         root.addView(button("断开输入设备", cardColor, white) {
             bridge?.disconnectInput()
         })
         inputStatus = text("输入端：未连接", 13f, muted)
         root.addView(inputStatus)
-        root.addView(hint("仅能直接订阅标准 BLE 心率传感器。小米手环 8 Pro 的私有协议与认证尚未实现。若选中的手环无 0x180D，不能获得真实心率。直接连接手环可能与小米运动健康冲突。"))
+        root.addView(hint("标准 BLE 设备可读取真实心率。新增只读 GATT 诊断可列出手环服务和特征，但不能破解认证或获得真实 BPM。若小米运动健康占用手环，可能无法连接；不要解绑或选择连接新手机。"))
 
         root.addView(section("4  运行诊断"))
         val logCard = card()
@@ -228,7 +231,7 @@ class MainActivity : Activity() {
         if (Build.VERSION.SDK_INT >= 31) {
             permissions.add(Manifest.permission.BLUETOOTH_CONNECT)
             permissions.add(Manifest.permission.BLUETOOTH_ADVERTISE)
-            if (which == REQ_SCAN) permissions.add(Manifest.permission.BLUETOOTH_SCAN)
+            if (which == REQ_SCAN || which == REQ_DIAG) permissions.add(Manifest.permission.BLUETOOTH_SCAN)
         }
         if (Build.VERSION.SDK_INT >= 33 && which == REQ_START) {
             permissions.add(Manifest.permission.POST_NOTIFICATIONS)
@@ -240,10 +243,10 @@ class MainActivity : Activity() {
 
     override fun onRequestPermissionsResult(requestCode: Int, permissions: Array<out String>, grantResults: IntArray) {
         super.onRequestPermissionsResult(requestCode, permissions, grantResults)
-        if (requestCode == REQ_START || requestCode == REQ_SCAN) {
+        if (requestCode == REQ_START || requestCode == REQ_SCAN || requestCode == REQ_DIAG) {
             // Notification permission is optional; BT permissions are necessary.
             val required = if (Build.VERSION.SDK_INT >= 31) {
-                if (requestCode == REQ_SCAN) listOf(Manifest.permission.BLUETOOTH_CONNECT, Manifest.permission.BLUETOOTH_SCAN)
+                if (requestCode == REQ_SCAN || requestCode == REQ_DIAG) listOf(Manifest.permission.BLUETOOTH_CONNECT, Manifest.permission.BLUETOOTH_SCAN)
                 else listOf(Manifest.permission.BLUETOOTH_CONNECT, Manifest.permission.BLUETOOTH_ADVERTISE)
             } else emptyList()
             if (required.any { checkSelfPermission(it) != PackageManager.PERMISSION_GRANTED })
@@ -270,13 +273,14 @@ class MainActivity : Activity() {
                 bridge?.setSource(desiredSource)
                 toast("正在启动标准 BLE 心率服务")
             }
-            REQ_SCAN -> {
-                if (bridge?.snapshot()?.running != true) {
+            REQ_SCAN, REQ_DIAG -> {
+                if (which == REQ_SCAN && bridge?.snapshot()?.running != true) {
                     toast("请先启动心率服务，再连接输入设备")
                     return
                 }
                 @Suppress("DEPRECATION")
-                startActivityForResult(Intent(this, BleScanActivity::class.java), REQ_DEVICE)
+                startActivityForResult(Intent(this, BleScanActivity::class.java),
+                    if (which == REQ_DIAG) REQ_DIAG_DEVICE else REQ_DEVICE)
             }
         }
     }
@@ -284,6 +288,11 @@ class MainActivity : Activity() {
     @Deprecated("Native Activity result API used intentionally without androidx")
     override fun onActivityResult(requestCode: Int, resultCode: Int, data: Intent?) {
         super.onActivityResult(requestCode, resultCode, data)
+        if (requestCode == REQ_DIAG_DEVICE && resultCode == RESULT_OK) {
+            val address = data?.getStringExtra("address") ?: return
+            startActivity(Intent(this, GattInspectorActivity::class.java).putExtra("address", address))
+            return
+        }
         if (requestCode == REQ_DEVICE && resultCode == RESULT_OK) {
             val address = data?.getStringExtra("address") ?: return
             AlertDialog.Builder(this)
@@ -350,5 +359,5 @@ class MainActivity : Activity() {
     private fun dp(value: Int) = (value * resources.displayMetrics.density + 0.5f).toInt()
     private fun toast(value: String) { Toast.makeText(this, value, Toast.LENGTH_LONG).show() }
 
-    companion object { private const val REQ_START = 201; private const val REQ_SCAN = 202; private const val REQ_DEVICE = 203 }
+    companion object { private const val REQ_START = 201; private const val REQ_SCAN = 202; private const val REQ_DEVICE = 203; private const val REQ_DIAG = 204; private const val REQ_DIAG_DEVICE = 205 }
 }

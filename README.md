@@ -1,6 +1,22 @@
+# Mi HR Bridge v0.2.0 — 手环 GATT 只读诊断
+
+本版在 v0.1.1 实机验证成功的 BLE 0x180D 心率输出基础上，增加 **手环 GATT 只读诊断**。
+
+- 扫描设备或使用系统已绑定设备列表、手动输入手环地址；连接并枚举 UUID、特征属性和描述符。
+- 不发配对、解绑、私有命令，不读取特征值，不主动订阅私有通知。
+- 完成服务发现或 15 秒超时后自动断开。
+- 可复制脱敏报告（MAC 后三组隐藏），用于下一阶段协议研究。
+- 小米手环 8 Pro 的私有认证与实时心率读取仍未实现。
+
+> 特别注意：小米运动健康若已连接手环，此诊断可能失败。不要为运行诊断而重置配对。
+
+## Android 构建
+
+GitHub Actions 推送后自动执行 `:app:testDebugUnitTest :app:assembleDebug` 并上传 APK。
+
 # Mi HR Bridge (Android) / 安卓 BLE 心率转发器
 
-**版本：0.1.1（待正式编译验证的源代码原型，不是已在手机上实测的 APK）**
+**版本：0.2.0（GATT 诊断原型；v0.1.1 的 BLE 心率广播已在小米 15S Pro 实测）**
 
 目标设备：小米 15S Pro；输出协议：Bluetooth SIG Heart Rate Service `0x180D`，Heart Rate Measurement `0x2A37`（Notify）；测试工具：Windows Bluetooth LE Explorer。此项目不需要 Python。
 

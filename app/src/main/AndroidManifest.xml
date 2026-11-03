@@ -14,6 +14,7 @@
         android:label="Mi HR Bridge" android:icon="@drawable/ic_heart"
         android:theme="@android:style/Theme.Material.Light.NoActionBar"
         android:usesCleartextTraffic="false">
+        <activity android:name=".GattInspectorActivity" android:exported="false" />
         <activity android:name=".BleScanActivity" android:exported="false" />
         <activity android:name=".MainActivity" android:exported="true">
             <intent-filter>

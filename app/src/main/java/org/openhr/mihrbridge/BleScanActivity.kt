@@ -3,11 +3,13 @@ package org.openhr.mihrbridge
 import android.Manifest
 import android.annotation.SuppressLint
 import android.app.Activity
+import android.bluetooth.BluetoothAdapter
 import android.bluetooth.BluetoothManager
 import android.bluetooth.le.BluetoothLeScanner
 import android.bluetooth.le.ScanCallback
 import android.bluetooth.le.ScanResult
 import android.content.Intent
+import android.app.AlertDialog
 import android.graphics.Color
 import android.os.Bundle
 import android.os.Handler
@@ -15,6 +17,7 @@ import android.os.Looper
 import android.view.ViewGroup
 import android.widget.ArrayAdapter
 import android.widget.Button
+import android.widget.EditText
 import android.widget.LinearLayout
 import android.widget.ListView
 import android.widget.TextView
@@ -26,7 +29,8 @@ import android.widget.TextView
 class BleScanActivity : Activity() {
     private val handler = Handler(Looper.getMainLooper())
     private var scanner: BluetoothLeScanner? = null
-    private val found = LinkedHashMap<String, ScanResult>()
+    private data class Nearby(val address: String, val name: String, val rssi: Int?)
+    private val found = LinkedHashMap<String, Nearby>()
     private val labels = mutableListOf<String>()
     private lateinit var adapter: ArrayAdapter<String>
     private lateinit var info: TextView
@@ -35,7 +39,10 @@ class BleScanActivity : Activity() {
         override fun onScanResult(callbackType: Int, result: ScanResult) {
             val address = result.device.address
             val old = found[address]
-            if (old == null || result.rssi > old.rssi) found[address] = result
+            val name = result.scanRecord?.deviceName ?: try { result.device.name } catch (_: Exception) { null }
+            if (old == null || (old.rssi ?: -127) < result.rssi) {
+                found[address] = Nearby(address, name?.takeUnless { it.isBlank() } ?: "未命名 BLE 设备", result.rssi)
+            }
             if (found.size > 150) return
             runOnUiThread { updateList() }
         }
@@ -69,13 +76,21 @@ class BleScanActivity : Activity() {
             setOnClickListener { startScan() }
         }
         root.addView(scanButton)
+        root.addView(Button(this).apply {
+            text = "查看 Android 已绑定的蓝牙设备"
+            setOnClickListener { showBondedDevices() }
+        })
+        root.addView(Button(this).apply {
+            text = "手动输入已知蓝牙地址（无需设备广播）"
+            setOnClickListener { enterAddress() }
+        })
         adapter = ArrayAdapter(this, android.R.layout.simple_list_item_1, labels)
         val list = ListView(this).apply {
             adapter = this@BleScanActivity.adapter
             setBackgroundColor(Color.WHITE)
             setOnItemClickListener { _, _, index, _ ->
-                val device = found.values.sortedByDescending { it.rssi }.getOrNull(index) ?: return@setOnItemClickListener
-                setResult(RESULT_OK, Intent().putExtra("address", device.device.address))
+                val device = found.values.sortedByDescending { it.rssi ?: -127 }.getOrNull(index) ?: return@setOnItemClickListener
+                select(device.address)
                 finish()
             }
         }
@@ -86,10 +101,8 @@ class BleScanActivity : Activity() {
 
     private fun updateList() {
         labels.clear()
-        found.values.sortedByDescending { it.rssi }.forEach { result ->
-            val name = result.scanRecord?.deviceName ?: try { result.device.name } catch (_: Exception) { null }
-            val label = name?.takeUnless { it.isBlank() } ?: "未命名 BLE 设备"
-            labels.add("$label\n${result.device.address}     RSSI ${result.rssi} dBm")
+        found.values.sortedByDescending { it.rssi ?: -127 }.forEach { result ->
+            labels.add("${result.name}\n${result.address}     ${result.rssi?.let { "RSSI $it dBm" } ?: "系统已绑定"}")
         }
         adapter.notifyDataSetChanged()
         info.text = "已发现 ${found.size} 台 BLE 设备（扫描结束后也可点击）"
@@ -112,6 +125,46 @@ class BleScanActivity : Activity() {
         } catch (e: Exception) {
             info.text = "扫描异常：${e.message}"
         }
+    }
+
+    private fun showBondedDevices() {
+        stopScan()
+        found.clear()
+        try {
+            val adapter = getSystemService(BluetoothManager::class.java)?.adapter
+            adapter?.bondedDevices?.forEach { device ->
+                val name = try { device.name } catch (_: Exception) { null }
+                found[device.address] = Nearby(device.address, name ?: "已绑定设备", null)
+            }
+            updateList()
+            info.text = "已绑定 ${found.size} 台设备；若手环已从系统取消配对，可能不会列出。点击设备后尝试 GATT 连接。"
+        } catch (e: Exception) {
+            info.text = "无法读取已绑定列表：${e.javaClass.simpleName}"
+        }
+    }
+
+    private fun enterAddress() {
+        stopScan()
+        val input = EditText(this).apply {
+            hint = "AA:BB:CC:DD:EE:FF"
+            isSingleLine = true
+            setPadding(24, 18, 24, 18)
+        }
+        AlertDialog.Builder(this)
+            .setTitle("输入手环蓝牙地址")
+            .setMessage("只使用你在手环设置中确认的蓝牙地址。连接不保证成功，尤其是手环没有广播或被小米运动健康占用时。")
+            .setView(input)
+            .setNegativeButton("取消", null)
+            .setPositiveButton("确认") { _, _ ->
+                val addr = input.text.toString().trim().uppercase()
+                if (BluetoothAdapter.checkBluetoothAddress(addr)) select(addr)
+                else info.text = "地址格式无效，请重新输入"
+            }.show()
+    }
+
+    private fun select(address: String) {
+        setResult(RESULT_OK, Intent().putExtra("address", address))
+        finish()
     }
 
     private fun stopScan() {
