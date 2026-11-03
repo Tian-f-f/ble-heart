@@ -1,0 +1,15 @@
+Mi HR Bridge v0.1.1 2026-11-03
+
+验证环境：JDK 21、Kotlin/JVM 1.9（仅用于协议纯 JVM 代码编译）
+验证方式：kotlinc 编译 HrProtocol.kt 与独立 ProtocolSmoke.kt，随后 java -jar 执行
+结果：PASS
+ - 标准 0x180D/0x2A37 UUID
+ - 心率 30..220 BPM 共191项编码/解码往返
+ - Windows 实际测试界面出现的 06-5C、04-5E 数据包解码
+ - 16-bit 心率包解码与无效包拒绝
+ - AndroidManifest.xml / ic_heart.xml / strings.xml 均为合法 XML
+ - Gradle 官方 8.9 下载 SHA-256 已与公开官方校验和对照
+
+重要限制：此验证不是 Android Gradle 编译，不能保证 Kotlin Android 模块可直接编译通过。
+当前环境没有 Android SDK，且无法连接 services.gradle.org，因此尚未生成 APK。
+已预备 GitHub Actions 工作流，连接到有授权仓库后才能启动云端构建。

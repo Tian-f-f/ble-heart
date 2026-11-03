@@ -1,0 +1,35 @@
+Mi HR Bridge v0.1.0 - APK 编译说明
+
+本文件是构建操作说明，ZIP 并不是 APK。
+当前助手执行环境缺少 Android SDK，且无法连接 Gradle 下载服务器，因此未生成 APK。
+目前确认的是独立 Kotlin 心率报文逻辑与 XML 静态检查，不是完整 Android 编译。
+
+【推荐：GitHub Actions 自动编译，不需要 Python 或 Android Studio】
+
+1. 打开 https://github.com/new 创建 PRIVATE（私有）仓库；建议名称 MiHRBridge。
+2. 下载本 ZIP，先解压到电脑，例如 D:\MiHRBridge。
+3. 将解压后的项目文件和目录上传到该仓库根目录，确保包含：
+     .github/workflows/build-apk.yml
+     app/build.gradle.kts
+     app/src/main/AndroidManifest.xml
+     settings.gradle.kts
+   注意：不要直接上传 ZIP 而不解压，GitHub Actions 无法识别 ZIP 内的项目。
+   Windows 资源管理器打开“查看隐藏项目”，以便上传 .github 文件夹。
+4. 提交（Commit changes）后，仓库 Actions 页面通常会自动开始名为 Build Android debug APK 的构建；
+   也可 Actions > Build Android debug APK > Run workflow 手动启动。
+5. 成功后进入对应构建记录，在 Artifacts 中下载 MiHRBridge-debug-APK。
+6. 解压该 Artifact ZIP，得到 app-debug.apk，复制到小米 15S Pro，安装测试。
+7. 如果构建失败，下载 MiHRBridge-build-log，提供给我以便修复。
+
+【Windows 本地编译】
+
+1. 安装 Android Studio：https://developer.android.com/studio
+2. 用 Android Studio 打开本项目根目录，安装 Android SDK Platform 35 / Build Tools 35。
+3. 等待 Gradle 同步后，选择 Build > Build App Bundle(s) / APK(s) > Build APK(s)。
+   或在项目目录 Windows 终端执行：gradlew.bat :app:testDebugUnitTest :app:assembleDebug
+4. 构建成功后，app\build\outputs\apk\debug\app-debug.apk 即为可安装 APK。
+
+【注意】
+此版本能够模拟输出 BLE 心率（需在小米 15S Pro 实测），但尚未实现小米手环 8 Pro
+私有心率协议，不能宣称手机已能读取手环真实心率。
+如果手机上 nRF Connect 的模拟心率仍在广播，请先关闭以避免测试混淆。

@@ -1,0 +1,21 @@
+Source: Mi HR Bridge v0.1.0, 2026-11-03
+
+Verified in isolated environment:
+- Java runtime present (OpenJDK 21).
+- kotlin compiler available (1.9.0).
+- HrProtocol.kt built via kotlinc to runnable JVM jar and passed encode/decode UUID checks.
+- AndroidManifest.xml, strings.xml, and ic_heart.xml parsed successfully.
+- Gradle 8.9 checksum matches Gradle public official distribution checksum.
+- Gradle 8.9 / Android Gradle Plugin 8.7.x version compatibility checked against Android docs.
+
+Blocking issue:
+- Android SDK / Android build tools / Android Gradle plugin not preinstalled.
+- Network resolution failed when downloading Gradle from services.gradle.org.
+- No APK produced, no installable artifact verified.
+
+This package includes a GitHub Actions workflow which performs actual Android build and unit tests in a remote environment when the user uploads the source into a repository. It has not been executed here.
+
+再次检查（v0.1.1）：
+- 官方 Kotlin 兼容性表确认 KGP 2.2.20 支持 Gradle 8.9 / AGP 8.7.3。
+- 本地 Kotlin/JVM smoke: 191 个 BPM（30..220）编码解码往返，0x180D/0x2A37 UUID，8位/16位测量值及无效包，均通过。
+- Android SDK 缺失，无法在当前容器完整运行 assembleDebug；APK 仍待 GitHub Actions/Android Studio 产出。
