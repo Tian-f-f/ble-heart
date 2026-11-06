@@ -182,13 +182,6 @@ class HeartRatePeripheral(
             report("MTU changed client=" + clientId(device) + " mtu=" + mtu)
         }
 
-        override fun onConnectionUpdated(
-            device: BluetoothDevice, interval: Int, latency: Int, timeout: Int, status: Int
-        ) {
-            report("连接参数 client=" + clientId(device) + " interval=" + interval +
-                " latency=" + latency + " timeout=" + timeout + " status=" + status)
-        }
-
         override fun onNotificationSent(device: BluetoothDevice, status: Int) {
             if (status == BluetoothGatt.GATT_SUCCESS) {
                 val count = notificationsCompleted.incrementAndGet()
