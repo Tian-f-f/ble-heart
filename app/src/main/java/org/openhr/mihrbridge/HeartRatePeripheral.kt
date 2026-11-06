@@ -20,6 +20,7 @@ import android.content.Context
 import android.os.Build
 import android.os.ParcelUuid
 import java.util.concurrent.ConcurrentHashMap
+import java.util.concurrent.atomic.AtomicInteger
 
 /** BLE Peripheral role. The service is registered before advertising is started. */
 @SuppressLint("MissingPermission") // Runtime permissions are checked by MainActivity before starting.
@@ -40,14 +41,47 @@ class HeartRatePeripheral(
     val connectedCount: Int get() = peers.size
     val subscribers: Int get() = subscriptions.size
 
+    data class Diagnostics(
+        val cccdReads: Int,
+        val cccdWrites: Int,
+        val notificationsQueued: Int,
+        val notificationsCompleted: Int,
+        val notificationsFailed: Int,
+        val lastMtu: Int,
+        val lastClient: String
+    )
+
+    private val cccdReads = AtomicInteger()
+    private val cccdWrites = AtomicInteger()
+    private val notificationsQueued = AtomicInteger()
+    private val notificationsCompleted = AtomicInteger()
+    private val notificationsFailed = AtomicInteger()
+    @Volatile private var lastMtu = 23
+    @Volatile private var lastClient = "--"
+
+    fun diagnostics() = Diagnostics(
+        cccdReads.get(), cccdWrites.get(), notificationsQueued.get(),
+        notificationsCompleted.get(), notificationsFailed.get(), lastMtu, lastClient
+    )
+
+    private fun clientId(device: BluetoothDevice): String =
+        "**:**:**:**:" + device.address.takeLast(5)
+
+    private fun bytesHex(value: ByteArray): String =
+        value.take(20).joinToString(" ") { (it.toInt() and 255).toString(16).uppercase().padStart(2, '0') } +
+            if (value.size > 20) " ..." else ""
+
     private val serverCallbacks = object : BluetoothGattServerCallback() {
         override fun onServiceAdded(status: Int, service: BluetoothGattService?) {
             if (!active) return
+            report("HRS 0x180D 注册回调 status=" + status)
             if (status == BluetoothGatt.GATT_SUCCESS) startAdvertising(includeName = true)
             else report("心率服务注册失败: GATT=$status")
         }
 
         override fun onConnectionStateChange(device: BluetoothDevice, status: Int, newState: Int) {
+            lastClient = clientId(device)
+            report("连接状态 client=" + lastClient + " status=" + status + " state=" + newState)
             if (newState == BluetoothProfile.STATE_CONNECTED && status == BluetoothGatt.GATT_SUCCESS) {
                 peers[device.address] = device
                 report("客户端已连接（${peers.size}）")
@@ -61,6 +95,9 @@ class HeartRatePeripheral(
         override fun onDescriptorReadRequest(
             device: BluetoothDevice, requestId: Int, offset: Int, descriptor: BluetoothGattDescriptor
         ) {
+            cccdReads.incrementAndGet()
+            report("描述符 READ client=" + clientId(device) + " UUID=" + descriptor.uuid +
+                " offset=" + offset)
             if (descriptor.uuid != HrProtocol.CCCD) {
                 server?.sendResponse(device, requestId, BluetoothGatt.GATT_READ_NOT_PERMITTED, offset, null)
                 return
@@ -75,6 +112,10 @@ class HeartRatePeripheral(
             device: BluetoothDevice, requestId: Int, descriptor: BluetoothGattDescriptor,
             preparedWrite: Boolean, responseNeeded: Boolean, offset: Int, value: ByteArray
         ) {
+            cccdWrites.incrementAndGet()
+            report("描述符 WRITE client=" + clientId(device) + " UUID=" + descriptor.uuid +
+                " hex=[" + bytesHex(value) + "] offset=" + offset +
+                " prepared=" + preparedWrite + " responseNeeded=" + responseNeeded)
             var status = BluetoothGatt.GATT_SUCCESS
             if (descriptor.uuid != HrProtocol.CCCD || preparedWrite) {
                 status = BluetoothGatt.GATT_REQUEST_NOT_SUPPORTED
@@ -93,18 +134,70 @@ class HeartRatePeripheral(
                     else -> status = BluetoothGatt.GATT_REQUEST_NOT_SUPPORTED
                 }
             }
-            if (responseNeeded) server?.sendResponse(device, requestId, status, offset, null)
+            if (responseNeeded) {
+                val accepted = server?.sendResponse(device, requestId, status, offset, null) == true
+                report("CCCD 写响应 status=" + status + " queued=" + accepted)
+            } else {
+                report("CCCD 无响应写入 status=" + status)
+            }
         }
 
         override fun onCharacteristicReadRequest(
             device: BluetoothDevice, requestId: Int, offset: Int,
             characteristic: BluetoothGattCharacteristic
         ) {
+            report("特征 READ client=" + clientId(device) + " UUID=" + characteristic.uuid +
+                " offset=" + offset)
             if (characteristic.uuid == HrProtocol.BODY_SENSOR_LOCATION) {
                 respondRead(device, requestId, offset, byteArrayOf(0x02)) // wrist
             } else {
                 // The measurement characteristic intentionally has NOTIFY but not READ.
                 server?.sendResponse(device, requestId, BluetoothGatt.GATT_READ_NOT_PERMITTED, offset, null)
+            }
+        }
+
+        override fun onCharacteristicWriteRequest(
+            device: BluetoothDevice, requestId: Int, characteristic: BluetoothGattCharacteristic,
+            preparedWrite: Boolean, responseNeeded: Boolean, offset: Int, value: ByteArray
+        ) {
+            report("特征 WRITE client=" + clientId(device) + " UUID=" + characteristic.uuid +
+                " hex=[" + bytesHex(value) + "] responseNeeded=" + responseNeeded)
+            if (responseNeeded) {
+                val accepted = server?.sendResponse(
+                    device, requestId, BluetoothGatt.GATT_WRITE_NOT_PERMITTED, offset, null
+                ) == true
+                report("只读/通知特征拒绝写入，响应已提交=" + accepted)
+            }
+        }
+
+        override fun onExecuteWrite(device: BluetoothDevice, requestId: Int, execute: Boolean) {
+            report("EXECUTE_WRITE client=" + clientId(device) + " execute=" + execute)
+            val status = if (execute) BluetoothGatt.GATT_REQUEST_NOT_SUPPORTED
+                         else BluetoothGatt.GATT_SUCCESS
+            server?.sendResponse(device, requestId, status, 0, null)
+        }
+
+        override fun onMtuChanged(device: BluetoothDevice, mtu: Int) {
+            lastMtu = mtu
+            report("MTU changed client=" + clientId(device) + " mtu=" + mtu)
+        }
+
+        override fun onConnectionUpdated(
+            device: BluetoothDevice, interval: Int, latency: Int, timeout: Int, status: Int
+        ) {
+            report("连接参数 client=" + clientId(device) + " interval=" + interval +
+                " latency=" + latency + " timeout=" + timeout + " status=" + status)
+        }
+
+        override fun onNotificationSent(device: BluetoothDevice, status: Int) {
+            if (status == BluetoothGatt.GATT_SUCCESS) {
+                val count = notificationsCompleted.incrementAndGet()
+                if (count == 1 || count % 10 == 0) {
+                    report("心率通知已完成 client=" + clientId(device) + " total=" + count)
+                }
+            } else {
+                notificationsFailed.incrementAndGet()
+                report("心率通知回调失败 client=" + clientId(device) + " status=" + status)
             }
         }
     }
@@ -120,6 +213,13 @@ class HeartRatePeripheral(
 
     fun start(): Boolean {
         if (active) return true
+        cccdReads.set(0)
+        cccdWrites.set(0)
+        notificationsQueued.set(0)
+        notificationsCompleted.set(0)
+        notificationsFailed.set(0)
+        lastMtu = 23
+        lastClient = "--"
         val manager = context.getSystemService(BluetoothManager::class.java)
         val adapter = manager?.adapter
         if (adapter == null || !adapter.isEnabled) {
@@ -214,15 +314,31 @@ class HeartRatePeripheral(
             try {
                 if (Build.VERSION.SDK_INT >= 33) {
                     val code = gatt.notifyCharacteristicChanged(device, hrCharacteristic, false, data)
-                    if (code != BluetoothStatusCodes.SUCCESS) report("发送心率通知失败: $code")
+                    if (code == BluetoothStatusCodes.SUCCESS) {
+                        val count = notificationsQueued.incrementAndGet()
+                        if (count == 1 || count % 10 == 0) {
+                            report("心率通知入队 BPM=" + bpm + " total=" + count)
+                        }
+                    } else {
+                        notificationsFailed.incrementAndGet()
+                        report("发送心率通知失败: " + code)
+                    }
                 } else {
                     @Suppress("DEPRECATION")
                     hrCharacteristic.value = data
                     @Suppress("DEPRECATION")
-                    if (!gatt.notifyCharacteristicChanged(device, hrCharacteristic, false))
+                    if (gatt.notifyCharacteristicChanged(device, hrCharacteristic, false)) {
+                        val count = notificationsQueued.incrementAndGet()
+                        if (count == 1 || count % 10 == 0) {
+                            report("心率通知入队 BPM=" + bpm + " total=" + count)
+                        }
+                    } else {
+                        notificationsFailed.incrementAndGet()
                         report("发送心率通知失败")
+                    }
                 }
             } catch (e: Exception) {
+                notificationsFailed.incrementAndGet()
                 report("心率通知异常：${e.message}")
             }
         }
