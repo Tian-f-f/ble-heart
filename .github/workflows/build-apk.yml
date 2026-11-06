@@ -43,13 +43,17 @@ jobs:
         shell: bash
         run: |
           set -o pipefail
+          mkdir -p app/build/diagnostic-apks
           gradle --no-daemon :app:testDebugUnitTest :app:assembleDebug --stacktrace 2>&1 | tee build.log
+          cp app/build/outputs/apk/debug/app-debug.apk app/build/diagnostic-apks/MiHRBridge-v0.2.1-standard.apk
+          gradle --no-daemon -PstandaloneDiagnostic=true :app:assembleDebug --rerun-tasks --stacktrace 2>&1 | tee -a build.log
+          cp app/build/outputs/apk/debug/app-debug.apk app/build/diagnostic-apks/MiHRBridge-v0.2.1-side-by-side.apk
       - name: Upload installable debug APK
         if: success()
         uses: actions/upload-artifact@v4
         with:
           name: MiHRBridge-debug-APK
-          path: app/build/outputs/apk/debug/app-debug.apk
+          path: app/build/diagnostic-apks/*.apk
           if-no-files-found: error
           retention-days: 14
       - name: Upload build log
