@@ -16,7 +16,10 @@ import android.os.IBinder
 import android.os.Looper
 import android.os.SystemClock
 import android.util.Log
-import java.util.concurrent.atomic.AtomicReference
+import java.text.SimpleDateFormat
+import java.util.ArrayDeque
+import java.util.Date
+import java.util.Locale
 import kotlin.math.sin
 import kotlin.random.Random
 
@@ -31,7 +34,9 @@ class HrBridgeService : Service() {
         val source: Source,
         val bpm: Int?,
         val inputState: String,
-        val latestEvent: String
+        val latestEvent: String,
+        val diagnostics: HeartRatePeripheral.Diagnostics?,
+        val history: String
     )
 
     inner class LocalBinder : Binder() { fun service(): HrBridgeService = this@HrBridgeService }
@@ -44,6 +49,8 @@ class HrBridgeService : Service() {
     @Volatile private var manualBpm = 80
     @Volatile private var currentBpm: Int? = null
     @Volatile private var lastEvent = "等待启动"
+    private val eventHistory = ArrayDeque<String>()
+    private val eventLock = Any()
     private var ticks: Long = 0
     private var lastNotificationMs: Long = 0L
 
@@ -166,12 +173,40 @@ class HrBridgeService : Service() {
         running, peripheral?.advertising ?: false,
         peripheral?.connectedCount ?: 0, peripheral?.subscribers ?: 0,
         mode, currentBpm, inputClient?.inputStatus ?: "无输入",
-        lastEvent
+        lastEvent, peripheral?.diagnostics(), synchronized(eventLock) {
+            eventHistory.joinToString("\n")
+        }
     )
 
+    fun diagnosticReport(): String {
+        val state = snapshot()
+        val d = state.diagnostics
+        return buildString {
+            appendLine("Mi HR Bridge v0.2.1 · C506SE 诊断报告")
+            appendLine("运行=" + state.running + " 广播=" + state.advertising +
+                " 连接=" + state.connected + " 订阅=" + state.subscribed)
+            appendLine("模式=" + state.source.name + " BPM=" + (state.bpm?.toString() ?: "--"))
+            appendLine("设备（脱敏）=" + (d?.lastClient ?: "--") + " MTU=" + (d?.lastMtu ?: 23))
+            appendLine("CCCD read=" + (d?.cccdReads ?: 0) + " write=" + (d?.cccdWrites ?: 0))
+            appendLine("Notify queued=" + (d?.notificationsQueued ?: 0) +
+                " complete=" + (d?.notificationsCompleted ?: 0) +
+                " failed=" + (d?.notificationsFailed ?: 0))
+            appendLine("说明：这里仅记录 Android 应用可见的 GATT Server 回调。")
+            appendLine("ATT 服务发现的原始请求需要蓝牙 HCI 日志才能确认。")
+            appendLine("---------- 事件记录 ----------")
+            append(state.history)
+        }
+    }
+
     private fun logEvent(message: String) {
-        lastEvent = message
-        Log.i("MiHRBridge", message)
+        val stamp = SimpleDateFormat("HH:mm:ss.SSS", Locale.getDefault()).format(Date())
+        val entry = "[" + stamp + "] " + message
+        synchronized(eventLock) {
+            eventHistory.addLast(entry)
+            while (eventHistory.size > 200) eventHistory.removeFirst()
+        }
+        lastEvent = entry
+        Log.i("MiHRBridge", entry)
     }
 
     private fun createChannel() {
