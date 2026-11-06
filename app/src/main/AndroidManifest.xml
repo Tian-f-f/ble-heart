@@ -11,18 +11,18 @@
     <uses-permission android:name="android.permission.POST_NOTIFICATIONS" />
 
     <application android:allowBackup="false"
-        android:label="Mi HR Bridge" android:icon="@drawable/ic_heart"
+        android:label="${appDisplayName}" android:icon="@drawable/ic_heart"
         android:theme="@android:style/Theme.Material.Light.NoActionBar"
         android:usesCleartextTraffic="false">
-        <activity android:name=".GattInspectorActivity" android:exported="false" />
-        <activity android:name=".BleScanActivity" android:exported="false" />
-        <activity android:name=".MainActivity" android:exported="true">
+        <activity android:name="org.openhr.mihrbridge.GattInspectorActivity" android:exported="false" />
+        <activity android:name="org.openhr.mihrbridge.BleScanActivity" android:exported="false" />
+        <activity android:name="org.openhr.mihrbridge.MainActivity" android:exported="true">
             <intent-filter>
                 <action android:name="android.intent.action.MAIN" />
                 <category android:name="android.intent.category.LAUNCHER" />
             </intent-filter>
         </activity>
-        <service android:name=".HrBridgeService" android:exported="false"
+        <service android:name="org.openhr.mihrbridge.HrBridgeService" android:exported="false"
             android:foregroundServiceType="connectedDevice" />
     </application>
 </manifest>
