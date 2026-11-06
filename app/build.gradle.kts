@@ -3,12 +3,15 @@ plugins {
     id("org.jetbrains.kotlin.android")
 }
 
+val standaloneDiagnostic = providers.gradleProperty("standaloneDiagnostic").isPresent
+
 android {
     namespace = "org.openhr.mihrbridge"
     compileSdk = 35
 
     defaultConfig {
-        applicationId = "org.openhr.mihrbridge"
+        applicationId = if (standaloneDiagnostic) "org.openhr.mihrbridge.diag" else "org.openhr.mihrbridge"
+        manifestPlaceholders["appDisplayName"] = if (standaloneDiagnostic) "Mi HR Bridge 诊断版" else "Mi HR Bridge"
         minSdk = 26
         targetSdk = 35
         versionCode = 4
