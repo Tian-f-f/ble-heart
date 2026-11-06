@@ -5,6 +5,8 @@ import android.app.Activity
 import android.app.AlertDialog
 import android.bluetooth.BluetoothAdapter
 import android.bluetooth.BluetoothManager
+import android.content.ClipData
+import android.content.ClipboardManager
 import android.content.ComponentName
 import android.content.Context
 import android.content.Intent
@@ -46,6 +48,8 @@ class MainActivity : Activity() {
     private lateinit var connections: TextView
     private lateinit var inputStatus: TextView
     private lateinit var eventStatus: TextView
+    private lateinit var diagnosticCounters: TextView
+    private lateinit var diagnosticPreview: TextView
     private lateinit var serviceStatus: TextView
     private lateinit var bpmEdit: EditText
     private lateinit var radioGroup: RadioGroup
@@ -109,7 +113,7 @@ class MainActivity : Activity() {
         }
         scroll.addView(root)
         root.addView(text("Mi HR Bridge", 29f, white, true))
-        root.addView(text("蓝牙心率转发 · 开发测试版 0.2.0", 12f, muted).apply {
+        root.addView(text("蓝牙心率转发 · C506SE 诊断版 0.2.1", 12f, muted).apply {
             setPadding(0, dp(5), 0, dp(18))
         })
 
@@ -199,6 +203,44 @@ class MainActivity : Activity() {
         root.addView(logCard)
         root.addView(hint("数据源切为真实 BLE 后，超过 5 秒未收到新心率，将停止发送旧数据。需要关闭锁屏清理/省电限制后再测试长期运行稳定性。"))
 
+        root.addView(section("5  C506SE · GATT 交互诊断"))
+        val diagCard = card()
+        diagnosticCounters = text("CCCD 读/写：0 / 0", 13f, white)
+        diagCard.addView(diagnosticCounters)
+        diagCard.addView(text("最近事件（完整日志可在下方查看）", 12f, muted).apply {
+            setPadding(0, dp(12), 0, dp(6))
+        })
+        diagnosticPreview = text("暂无 GATT 事件。", 11f, white).apply {
+            typeface = Typeface.MONOSPACE
+            setTextIsSelectable(true)
+        }
+        diagCard.addView(diagnosticPreview)
+        root.addView(diagCard)
+        root.addView(button("查看完整日志 / 一键复制", accent, page) {
+            val data = bridge?.diagnosticReport() ?: "应用服务未连接，暂无诊断数据。"
+            val body = ScrollView(this).apply {
+                addView(TextView(this@MainActivity).apply {
+                    text = data
+                    textSize = 12f
+                    typeface = Typeface.MONOSPACE
+                    setTextIsSelectable(true)
+                    setPadding(dp(20), dp(12), dp(20), dp(12))
+                })
+            }
+            AlertDialog.Builder(this)
+                .setTitle("Mi HR Bridge · BLE 诊断日志")
+                .setView(body)
+                .setNegativeButton("关闭", null)
+                .setPositiveButton("复制报告") { _, _ ->
+                    val clipboard = getSystemService(ClipboardManager::class.java)
+                    clipboard?.setPrimaryClip(ClipData.newPlainText("Mi HR Bridge GATT", data))
+                    toast("诊断报告已复制")
+                }
+                .show()
+        })
+        root.addView(hint("记录仅包含 Android 可见的连接、MTU、CCCD 请求和通知状态。"
+            + "如没有 CCCD 请求，仍需蓝牙 HCI 抓包才能判断码表是否完成服务发现。"))
+
         setContentView(scroll)
     }
 
@@ -218,6 +260,17 @@ class MainActivity : Activity() {
         connections.text = "已连接客户端：${sample.connected} · 心率订阅：${sample.subscribed}"
         inputStatus.text = "输入端：${sample.inputState}"
         eventStatus.text = sample.latestEvent
+        val diag = sample.diagnostics
+        diagnosticCounters.text = if (diag == null) "诊断统计不可用" else
+            "CCCD 读取：" + diag.cccdReads + "    CCCD 写入：" + diag.cccdWrites +
+            "\n通知入队：" + diag.notificationsQueued +
+            "    发送完成：" + diag.notificationsCompleted +
+            "    失败：" + diag.notificationsFailed +
+            "\nMTU：" + diag.lastMtu + "    最近客户端：" + diag.lastClient
+        val recent = sample.history.lineSequence().filter { it.isNotBlank() }
+            .toList().takeLast(12).joinToString("\n")
+        val preview = recent.ifEmpty { "暂无 GATT 事件。" }
+        if (diagnosticPreview.text.toString() != preview) diagnosticPreview.text = preview
     }
 
     private fun sourceText(src: HrBridgeService.Source) = when (src) {
